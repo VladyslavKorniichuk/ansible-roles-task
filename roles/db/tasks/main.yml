@@ -1,0 +1,84 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install PostgreSQL and required packages
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - postgresql-contrib
+      - python3-psycopg2
+      - acl
+    state: present
+
+- name: Ensure PostgreSQL service is started and enabled
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Locate postgresql.conf
+  ansible.builtin.find:
+    paths: /etc/postgresql
+    patterns: 'postgresql.conf'
+    recurse: true
+  register: pg_conf
+
+- name: Configure PostgreSQL to listen on all interfaces
+  ansible.builtin.lineinfile:
+    path: "{{ pg_conf.files[0].path }}"
+    regexp: "^#?listen_addresses\\s*="
+    line: "listen_addresses = '*'"
+  notify: Restart PostgreSQL
+
+- name: Locate pg_hba.conf
+  ansible.builtin.find:
+    paths: /etc/postgresql
+    patterns: 'pg_hba.conf'
+    recurse: true
+  register: pg_hba
+
+- name: Allow MD5 authentication from remote hosts in pg_hba.conf
+  ansible.builtin.lineinfile:
+    path: "{{ pg_hba.files[0].path }}"
+    line: "host all all 0.0.0.0/0 md5"
+    insertafter: EOF
+  notify: Restart PostgreSQL
+
+- name: Apply config changes 
+  ansible.builtin.meta: flush_handlers
+
+- name: Create PostgreSQL user
+  community.postgresql.postgresql_user:
+    name: "{{ db_user }}"
+    password: "{{ db_pass }}"
+    state: present
+  become_user: postgres
+
+- name: Create PostgreSQL database
+  community.postgresql.postgresql_db:
+    name: "{{ db_name }}"
+    owner: "{{ db_user }}"
+    state: present
+  become_user: postgres
+
+- name: Grant privileges on database to user
+  community.postgresql.postgresql_privs:
+    type: database
+    database: "{{ db_name }}"
+    roles: "{{ db_user }}"
+    privs: ALL
+    state: present
+  become_user: postgres
+
+- name: Grant privileges on schema public to user
+  community.postgresql.postgresql_privs:
+    type: schema
+    database: "{{ db_name }}"
+    objs: public
+    roles: "{{ db_user }}"
+    privs: ALL
+    state: present
+  become_user: postgres

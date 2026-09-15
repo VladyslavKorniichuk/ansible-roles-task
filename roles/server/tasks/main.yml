@@ -1,0 +1,106 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install Apache, PHP, and required modules
+  ansible.builtin.apt:
+    name:
+      - git
+      - curl
+      - unzip
+      - apache2
+      - libapache2-mod-php
+      - php
+      - php-cli
+      - php-pgsql
+      - php-mbstring
+      - php-xml
+      - php-curl
+      - php-zip
+      - php-bcmath
+      - composer
+    state: present
+
+- name: Clone Laravel application repository
+  ansible.builtin.git:
+    repo: "{{ app_repo }}"
+    dest: "{{ app_dir }}"
+    version: main
+    force: true
+
+- name: Copy .env file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_dir }}/.env"
+    owner: www-data
+    group: www-data
+    mode: '0644'
+
+- name: Install Composer dependencies
+  ansible.builtin.command:
+    cmd: composer install --no-interaction --prefer-dist --optimize-autoloader
+    chdir: "{{ app_dir }}"
+  environment:
+    COMPOSER_ALLOW_SUPERUSER: "1"
+
+- name: Generate Laravel application key
+  ansible.builtin.command:
+    cmd: php artisan key:generate --force
+    chdir: "{{ app_dir }}"
+
+- name: Run database migrations
+  ansible.builtin.command:
+    cmd: php artisan migrate --force
+    chdir: "{{ app_dir }}"
+  failed_when: false
+
+- name: Deploy Apache VirtualHost configuration
+  ansible.builtin.template:
+    src: laravel.conf.j2
+    dest: /etc/apache2/sites-available/laravel.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Apache
+
+- name: Enable Apache rewrite module
+  ansible.builtin.command: a2enmod rewrite
+  args:
+    creates: /etc/apache2/mods-enabled/rewrite.load
+  notify: Restart Apache
+
+- name: Disable default Apache site
+  ansible.builtin.command: a2dissite 000-default.conf
+  args:
+    removes: /etc/apache2/sites-enabled/000-default.conf
+  notify: Restart Apache
+
+- name: Enable Laravel site
+  ansible.builtin.command: a2ensite laravel.conf
+  args:
+    creates: /etc/apache2/sites-enabled/laravel.conf
+  notify: Restart Apache
+
+- name: Set permissions for Laravel directort
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    owner: www-data
+    group: www-data
+    recurse: true
+
+- name: Set permissions for storage and bootstrap/cache
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: '0775'
+    recurse: true
+  loop:
+    - "{{ app_dir }}/storage"
+    - "{{ app_dir }}/bootstrap/cache"
+
+- name: Ensure Apache service is started and enabled
+  ansible.builtin.service:
+    name: apache2
+    state: started
+    enabled: true

@@ -1,0 +1,7 @@
+---
+db_host: "127.0.0.1"
+db_name: "app_db"
+db_user: "app_user"
+db_pass: "app_pass"
+app_repo: "https://github.com/Practical-DevOps/app-for-devops.git"
+app_dir: "/var/www/app-for-devops"

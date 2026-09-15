@@ -1,1 +1,12 @@
 ---
+- name: Deploy and Configure PostgreSQL DB
+  hosts: db
+  become: true
+  roles:
+    - db
+
+- name: Deploy and Configure Apache Web Server with Laravel App
+  hosts: server
+  become: true 
+  roles:
+    - server
